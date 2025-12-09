@@ -1,5 +1,23 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createSessionToken } from "./_session";
+export const config = { runtime: "nodejs" };
+
+async function parseBody(req: VercelRequest): Promise<any> {
+  if (req.body !== undefined) return (req as any).body;
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => (data += chunk));
+    req.on("end", () => {
+      if (!data) return resolve({});
+      try {
+        resolve(JSON.parse(data));
+      } catch {
+        resolve({});
+      }
+    });
+    req.on("error", reject);
+  });
+}
 
 // OTP generation and verification logic (server-side only)
 const DEFAULT_WINDOW_SECONDS = 60;
@@ -10,7 +28,11 @@ const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 // In-memory rate limiting store (for serverless, consider using Redis/Vercel KV in production)
 const rateLimitStore = new Map<string, { attempts: number; resetAt: number }>();
 
-function generateCode(date: Date, windowSeconds: number, secret: string): string {
+function generateCode(
+  date: Date,
+  windowSeconds: number,
+  secret: string
+): string {
   const timeStep = Math.floor(date.getTime() / 1000 / windowSeconds) + 1;
 
   let h1 = 0x811c9dc5 ^ timeStep;
@@ -47,7 +69,11 @@ function generateCode(date: Date, windowSeconds: number, secret: string): string
   return code;
 }
 
-function verifyCode(code: string, secret: string, windowSeconds: number = DEFAULT_WINDOW_SECONDS): boolean {
+function verifyCode(
+  code: string,
+  secret: string,
+  windowSeconds: number = DEFAULT_WINDOW_SECONDS
+): boolean {
   if (!/^\d{4}$/.test(code)) return false;
 
   // Use server time (not client time) - this is critical for Vercel deployment
@@ -63,13 +89,21 @@ function verifyCode(code: string, secret: string, windowSeconds: number = DEFAUL
 
 function getClientId(req: VercelRequest): string {
   // Use IP address or a combination of IP + user agent for rate limiting
-  const forwarded = req.headers['x-forwarded-for'];
-  const ip = forwarded ? (Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0]) : req.socket.remoteAddress || 'unknown';
-  const userAgent = req.headers['user-agent'] || 'unknown';
+  const forwarded = req.headers["x-forwarded-for"];
+  const ip = forwarded
+    ? Array.isArray(forwarded)
+      ? forwarded[0]
+      : forwarded.split(",")[0]
+    : req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
   return `${ip}-${userAgent}`;
 }
 
-function checkRateLimit(clientId: string): { allowed: boolean; remaining: number; resetAt: number } {
+function checkRateLimit(clientId: string): {
+  allowed: boolean;
+  remaining: number;
+  resetAt: number;
+} {
   const now = Date.now();
   const record = rateLimitStore.get(clientId);
 
@@ -77,7 +111,7 @@ function checkRateLimit(clientId: string): { allowed: boolean; remaining: number
     // Reset or create new record
     rateLimitStore.set(clientId, {
       attempts: 1,
-      resetAt: now + RATE_LIMIT_WINDOW_MS
+      resetAt: now + RATE_LIMIT_WINDOW_MS,
     });
     // Clean up old entries periodically (simple cleanup)
     if (rateLimitStore.size > 1000) {
@@ -87,7 +121,11 @@ function checkRateLimit(clientId: string): { allowed: boolean; remaining: number
         }
       }
     }
-    return { allowed: true, remaining: MAX_ATTEMPTS - 1, resetAt: now + RATE_LIMIT_WINDOW_MS };
+    return {
+      allowed: true,
+      remaining: MAX_ATTEMPTS - 1,
+      resetAt: now + RATE_LIMIT_WINDOW_MS,
+    };
   }
 
   if (record.attempts >= MAX_ATTEMPTS) {
@@ -95,27 +133,31 @@ function checkRateLimit(clientId: string): { allowed: boolean; remaining: number
   }
 
   record.attempts++;
-  return { allowed: true, remaining: MAX_ATTEMPTS - record.attempts, resetAt: record.resetAt };
+  return {
+    allowed: true,
+    remaining: MAX_ATTEMPTS - record.attempts,
+    resetAt: record.resetAt,
+  };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     // Only allow POST requests
-    if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' });
+    if (req.method !== "POST") {
+      return res.status(405).json({ error: "Method not allowed" });
     }
 
     const secret = process.env.MIGRATION_SECRET;
     if (!secret) {
-      console.error('MIGRATION_SECRET environment variable is not set');
-      return res.status(500).json({ error: 'Server configuration error' });
+      console.error("MIGRATION_SECRET environment variable is not set");
+      return res.status(500).json({ error: "Server configuration error" });
     }
 
-    const body = (req as any).body || {};
-    const code = typeof body === 'string' ? body : body.code;
+    const body = await parseBody(req);
+    const code = typeof body === "string" ? body : body.code;
 
-    if (!code || typeof code !== 'string') {
-      return res.status(400).json({ error: 'Code is required' });
+    if (!code || typeof code !== "string") {
+      return res.status(400).json({ error: "Code is required" });
     }
 
     // Rate limiting
@@ -125,9 +167,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!rateLimit.allowed) {
       const resetIn = Math.ceil((rateLimit.resetAt - Date.now()) / 1000 / 60);
       return res.status(429).json({
-        error: 'Too many attempts',
+        error: "Too many attempts",
         message: `Rate limit exceeded. Please try again in ${resetIn} minute(s).`,
-        resetAt: rateLimit.resetAt
+        resetAt: rateLimit.resetAt,
       });
     }
 
@@ -136,9 +178,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!isValid) {
       return res.status(401).json({
-        error: 'Invalid code',
+        error: "Invalid code",
         remaining: rateLimit.remaining,
-        resetAt: rateLimit.resetAt
+        resetAt: rateLimit.resetAt,
       });
     }
 
@@ -151,8 +193,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       remaining: rateLimit.remaining,
     });
   } catch (err: any) {
-    console.error('verify-code error:', err?.message || err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error("verify-code error:", err?.message || err, err?.stack);
+    return res.status(500).json({ error: "Server error" });
   }
 }
-
