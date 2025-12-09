@@ -21,31 +21,29 @@ function App() {
       normalized.startsWith("https://127.0.0.1")
     );
   };
-  // Check if session is valid (with expiration)
-  const checkSessionValidity = (): boolean => {
-    if (typeof window === "undefined") return false;
+  const SESSION_KEY = "migration-session";
 
-    const sessionData = sessionStorage.getItem("migration-session");
-    if (!sessionData) return false;
-
+  // Check if session is locally valid (expiration) - server will still verify
+  const readLocalSession = (): { token: string; expiresAt: number } | null => {
+    if (typeof window === "undefined") return null;
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
     try {
-      const session = JSON.parse(sessionData);
-      const now = Date.now();
-
-      // Check if session has expired
-      if (session.expiresAt && now > session.expiresAt) {
-        sessionStorage.removeItem("migration-session");
-        return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed.token || !parsed.expiresAt) return null;
+      if (Date.now() > parsed.expiresAt) {
+        sessionStorage.removeItem(SESSION_KEY);
+        return null;
       }
-
-      return session.authenticated === true;
+      return parsed;
     } catch {
-      sessionStorage.removeItem("migration-session");
-      return false;
+      sessionStorage.removeItem(SESSION_KEY);
+      return null;
     }
   };
 
-  const [isAuthed, setIsAuthed] = useState<boolean>(checkSessionValidity);
+  const [isAuthed, setIsAuthed] = useState<boolean>(() => !!readLocalSession());
+  const [sessionChecking, setSessionChecking] = useState<boolean>(true);
   const [loginCode, setLoginCode] = useState<string>("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
@@ -89,10 +87,53 @@ function App() {
     localStorage.setItem("targetUrl", targetUrl);
   }, [sourceEnvironment, sourceUrl, targetEnvironment, targetUrl]);
 
+  // Verify session with server once on mount (protect against manual tampering)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const existing = readLocalSession();
+    if (!existing) {
+      setIsAuthed(false);
+      setSessionChecking(false);
+      return;
+    }
+
+    const verify = async () => {
+      try {
+        const res = await fetch("/api/verify-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: existing.token }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          // Refresh expiresAt from server response if provided
+          const updated = {
+            token: existing.token,
+            expiresAt: data.expiresAt || existing.expiresAt,
+          };
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+          setIsAuthed(true);
+        } else {
+          sessionStorage.removeItem(SESSION_KEY);
+          setIsAuthed(false);
+        }
+      } catch {
+        // In case of network error, fall back to local validity
+        setIsAuthed(!!readLocalSession());
+      } finally {
+        setSessionChecking(false);
+      }
+    };
+
+    verify();
+  }, []);
+
   // Check session expiration periodically
   useEffect(() => {
     const checkInterval = setInterval(() => {
-      if (!checkSessionValidity()) {
+      const session = readLocalSession();
+      if (!session) {
         setIsAuthed(false);
       }
     }, 60000); // Check every minute
@@ -137,14 +178,13 @@ function App() {
       if (data.success && data.sessionToken) {
         // Store session with expiration
         const sessionData = {
-          authenticated: true,
+          token: data.sessionToken,
           expiresAt: data.expiresAt,
-          createdAt: Date.now(),
         };
 
         if (typeof window !== "undefined") {
           sessionStorage.setItem(
-            "migration-session",
+            SESSION_KEY,
             JSON.stringify(sessionData)
           );
         }
@@ -244,6 +284,9 @@ function App() {
   };
 
   const handleDisconnect = () => {
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(SESSION_KEY);
+    }
     setIsConnected(false);
     setCollections([]);
     setOperationStatus(null);

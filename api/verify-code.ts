@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createSessionToken } from "./_session";
 
 // OTP generation and verification logic (server-side only)
 const DEFAULT_WINDOW_SECONDS = 60;
@@ -139,19 +140,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  // Generate session token with expiration
-  const sessionExpiresAt = Date.now() + SESSION_DURATION_MS;
-  const sessionToken = Buffer.from(JSON.stringify({
-    authenticated: true,
-    expiresAt: sessionExpiresAt,
-    createdAt: Date.now()
-  })).toString('base64');
+  const { token, expiresAt } = createSessionToken(secret);
 
   return res.status(200).json({
     success: true,
-    sessionToken,
-    expiresAt: sessionExpiresAt,
-    remaining: rateLimit.remaining
+    sessionToken: token,
+    expiresAt,
+    remaining: rateLimit.remaining,
   });
 }
 
