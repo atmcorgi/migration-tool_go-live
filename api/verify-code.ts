@@ -183,7 +183,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const { token, expiresAt } = createSessionToken(secret);
+    const { token, expiresAt } = createSessionToken(secret, clientId);
 
     return res.status(200).json({
       success: true,

@@ -1,6 +1,17 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { verifySessionToken } from "./_session.js";
 
+function getClientId(req: VercelRequest): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  const ip = forwarded
+    ? Array.isArray(forwarded)
+      ? forwarded[0]
+      : forwarded.split(",")[0]
+    : req.socket.remoteAddress || "unknown";
+  const userAgent = req.headers["user-agent"] || "unknown";
+  return `${ip}-${userAgent}`;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -17,7 +28,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Token is required" });
   }
 
-  const payload = verifySessionToken(token, secret);
+  const clientId = getClientId(req);
+  const payload = verifySessionToken(token, secret, clientId);
   if (!payload) {
     return res.status(401).json({ error: "Invalid or expired session" });
   }
