@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createSessionToken } from "./_session";
+import { createSessionToken } from "./_session.js";
 export const config = { runtime: "nodejs" };
 
 async function parseBody(req: VercelRequest): Promise<any> {
