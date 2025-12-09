@@ -49,7 +49,10 @@ export function verifySessionToken(
   const expectedSig = base64url(
     crypto.createHmac("sha256", secret).update(payloadB64).digest()
   );
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expectedBuf.length) return null;
+  if (!crypto.timingSafeEqual(sigBuf, expectedBuf)) {
     return null;
   }
 
