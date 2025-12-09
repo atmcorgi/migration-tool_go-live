@@ -17,7 +17,10 @@ function base64url(data: Buffer) {
     .replace(/=+$/, "");
 }
 
-export function createSessionToken(secret: string, clientId: string): {
+export function createSessionToken(
+  secret: string,
+  clientId: string
+): {
   token: string;
   expiresAt: number;
 } {
