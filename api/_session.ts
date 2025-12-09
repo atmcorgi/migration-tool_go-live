@@ -65,5 +65,3 @@ export function verifySessionToken(
 }
 
 export const SESSION_DURATION = SESSION_DURATION_MS;
-
-
