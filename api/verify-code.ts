@@ -99,54 +99,60 @@ function checkRateLimit(clientId: string): { allowed: boolean; remaining: number
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Only allow POST requests
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  try {
+    // Only allow POST requests
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
 
-  const secret = process.env.MIGRATION_SECRET;
-  if (!secret) {
-    console.error('MIGRATION_SECRET environment variable is not set');
-    return res.status(500).json({ error: 'Server configuration error' });
-  }
+    const secret = process.env.MIGRATION_SECRET;
+    if (!secret) {
+      console.error('MIGRATION_SECRET environment variable is not set');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
 
-  const { code } = req.body;
+    const body = (req as any).body || {};
+    const code = typeof body === 'string' ? body : body.code;
 
-  if (!code || typeof code !== 'string') {
-    return res.status(400).json({ error: 'Code is required' });
-  }
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: 'Code is required' });
+    }
 
-  // Rate limiting
-  const clientId = getClientId(req);
-  const rateLimit = checkRateLimit(clientId);
+    // Rate limiting
+    const clientId = getClientId(req);
+    const rateLimit = checkRateLimit(clientId);
 
-  if (!rateLimit.allowed) {
-    const resetIn = Math.ceil((rateLimit.resetAt - Date.now()) / 1000 / 60);
-    return res.status(429).json({
-      error: 'Too many attempts',
-      message: `Rate limit exceeded. Please try again in ${resetIn} minute(s).`,
-      resetAt: rateLimit.resetAt
-    });
-  }
+    if (!rateLimit.allowed) {
+      const resetIn = Math.ceil((rateLimit.resetAt - Date.now()) / 1000 / 60);
+      return res.status(429).json({
+        error: 'Too many attempts',
+        message: `Rate limit exceeded. Please try again in ${resetIn} minute(s).`,
+        resetAt: rateLimit.resetAt
+      });
+    }
 
-  // Verify code using server time (critical for Vercel)
-  const isValid = verifyCode(code.trim(), secret);
+    // Verify code using server time (critical for Vercel)
+    const isValid = verifyCode(code.trim(), secret);
 
-  if (!isValid) {
-    return res.status(401).json({
-      error: 'Invalid code',
+    if (!isValid) {
+      return res.status(401).json({
+        error: 'Invalid code',
+        remaining: rateLimit.remaining,
+        resetAt: rateLimit.resetAt
+      });
+    }
+
+    const { token, expiresAt } = createSessionToken(secret);
+
+    return res.status(200).json({
+      success: true,
+      sessionToken: token,
+      expiresAt,
       remaining: rateLimit.remaining,
-      resetAt: rateLimit.resetAt
     });
+  } catch (err: any) {
+    console.error('verify-code error:', err?.message || err);
+    return res.status(500).json({ error: 'Server error' });
   }
-
-  const { token, expiresAt } = createSessionToken(secret);
-
-  return res.status(200).json({
-    success: true,
-    sessionToken: token,
-    expiresAt,
-    remaining: rateLimit.remaining,
-  });
 }
 
