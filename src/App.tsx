@@ -164,7 +164,14 @@ function App() {
         body: JSON.stringify({ code: trimmed }),
       });
 
-      const data = await response.json();
+      const text = await response.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        // If server returned HTML or plain text, preserve it as message
+        data = { error: text || "Unexpected response" };
+      }
 
       if (!response.ok) {
         if (response.status === 429) {
