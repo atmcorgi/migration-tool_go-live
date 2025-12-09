@@ -1,0 +1,240 @@
+# 🧭 HƯỚNG DẪN MIGRATION TỔNG THỂ CHO DIRECTUS
+
+Phiên bản 1.0 – Dành cho quy trình di chuyển toàn bộ hệ thống Directus giữa hai instance (source → target).
+
+---
+## BEFORE MIGRATION
+### Yêu cầu
+Có quyền Admin (token) ở cả hai Directus instance.
+### Quy trình
+1. Nhập Directus URL và Bearer token cho các instance.
+2. Bật CORS Unblock và test connection.
+ 
+<img width="793" height="622" alt="image" src="https://github.com/user-attachments/assets/4b62a5c7-62bf-4a6e-966a-9d799367564b" />
+
+3. Sau khi test connection thành công thì connect to target instance
+   
+<img width="1212" height="745" alt="image" src="https://github.com/user-attachments/assets/ceeb2931-aedb-41fa-9d44-108ec813ec35" />
+---
+
+## ⚙️ PHẦN 1 — SCHEMA MIGRATION
+
+### Mục tiêu
+Chuyển toàn bộ cấu trúc cơ sở dữ liệu (collections, fields, relations, validations) từ source sang target.
+
+### Yêu cầu
+1. Có quyền Admin (token) ở cả hai Directus instance.  
+2. Target schema rỗng hoặc cần cập nhật theo diff.  
+
+### Quy trình
+1. Tạo **schema snapshot** từ source.
+
+<img width="1270" height="329" alt="image" src="https://github.com/user-attachments/assets/b875958c-4449-4570-a711-2f2de59304b8" /> 
+
+2. Gửi snapshot sang target → tạo **diff**.
+
+<img width="1440" height="729" alt="image" src="https://github.com/user-attachments/assets/d130ebe9-11d5-48ae-9039-7dd898c537dd" />
+
+3. Chọn collections cần migrate → Apply Schema.
+
+### Chính sách xử lý system collections
+- **Bỏ qua** các `directus_*` collections.  
+- **Giữ lại** các relations từ user collections → system collections.  
+- **Loại bỏ** relations có nguồn là system collections.
+
+### Thành phần chính
+- **Collections**: Tạo mới nếu chưa có.  
+- **Fields**: Tạo/sửa loại, validation, default, required.  
+- **Relations**: Giữ user→system, bỏ system→user.  
+- **Validation Rules**: Hỗ trợ hầu hết logic `_regex`, `_in`, `_gt`, `_lte`, `_between`,...
+
+### Thứ tự khuyến nghị
+1. Schema Migration  
+2. Files (nếu có `directus_files`)  
+3. Data Migration  
+4. Update relations bằng Data Migration (Two-Pass)
+
+### Lưu ý quan trọng
+- Không tự động xóa fields/relations trên target.  
+- Có thể chạy nhiều lần (idempotent).  
+- ID mapping ảnh hưởng Data Migration.
+- Nên Apply một lần ít hơn 15 collection để tránh quá tải.
+
+---
+
+## 💾 PHẦN 2 — DATA MIGRATION
+
+### Mục tiêu
+Di chuyển dữ liệu giữa hai instances sau khi schema đã khớp.
+
+### Yêu cầu
+- Target đã có schema (status “Existing”).
+
+<img width="2880" height="1196" alt="anh1" src="https://github.com/user-attachments/assets/9be040ca-a339-4fe2-adaa-1b52d29e10d3" />
+
+### Selective Import
+1. Chọn collection → bấm **Select Items**.  
+2. Tick các items cần import.  
+3. (Tuỳ chọn) chọn fields muốn migrate.  
+4. Bấm **Import Selected**.
+
+Kết quả: Tool chỉ import các item/field đã chọn, có tiến trình chi tiết.
+
+---
+
+### Field Selection – Two-Pass Migration
+Dùng khi collection có **foreign keys**.
+
+#### **Bước 1:** Import Regular Fields
+- Chỉ chọn fields cơ bản (`title`, `description`, …).  
+- Bỏ các relation fields (`_id`, `author_id`, …).  
+
+#### **Bước 2:** Update Relation Fields
+- Sau khi collections liên quan đã có data, import lại.  
+- Chỉ chọn relation fields để update.
+
+✅ Giữ nguyên ID gốc.  
+✅ Không lỗi constraint.  
+✅ Dữ liệu hoàn chỉnh sau 2 pass.
+
+---
+
+### Workflow ví dụ
+```
+Microsite_Article
+```
+- Pass 1: Import regular fields.
+
+<img width="2880" height="1196" alt="anh2" src="https://github.com/user-attachments/assets/95bd6b25-70bd-46ec-a656-e5e9fd17b356" />
+
+<img width="2880" height="1292" alt="anh3" src="https://github.com/user-attachments/assets/64c06ccc-385c-44c8-81e7-dcc242c5157d" />
+
+<img width="2880" height="1310" alt="anh4" src="https://github.com/user-attachments/assets/efd1f050-0eb6-4803-999d-04f158a91e08" />
+
+
+- Pass 2: Update relation fields (`division`, `image_src`, `title`...).
+
+<img width="2880" height="1292" alt="anh5" src="https://github.com/user-attachments/assets/c846bb30-4d32-410c-a5fd-9d6e3d2b5106" />
+
+<img width="2880" height="1310" alt="anh6" src="https://github.com/user-attachments/assets/e1841d86-adcf-4397-a190-0aa52c8dd662" />
+
+---
+
+### Troubleshooting
+- **Collection chưa tồn tại:** chạy Schema Migration trước.  
+- **Lỗi 403/400:** dùng Two-Pass.  
+- **Không update:** kiểm tra ID format.  
+- **Relation không cập nhật:** quên chạy Pass 2.  
+
+---
+
+### API tham chiếu
+- `previewCollectionItems()`  
+- `importSelectedItems()`  
+- `importFromDirectus()`
+
+---
+
+## 🔐 PHẦN 3 — ACCESS CONTROL & FLOWS
+ 
+---
+
+### 3.1 — Access Control Migration (Roles, Policies, Permissions, User Assignments)
+
+#### Mục tiêu
+
+Đảm bảo các Roles, Policies, Permissions và User Assignments được migrate chính xác, an toàn, giữ nguyên logic phân quyền.
+
+#### Thành phần chính
+
+| Collection              | Mô tả                                 | Phụ thuộc |
+| ----------------------- | ------------------------------------- | --------- |
+| `directus_roles`        | Nhóm người dùng                       | none      |
+| `directus_policies`     | Tập hợp quy tắc quyền hạn             | none      |
+| `directus_permissions`  | Quyền chi tiết theo collection/action | policies  |
+| `user_role_assignments` | Gán role cho user                     | roles     |
+
+#### Thứ tự migrate khuyến nghị
+
+1. Roles → 2) Policies → 3) Permissions → 4) User Assignments
+
+#### Các bước thao tác (UI)
+
+- Chọn Access Control Migration
+
+<img width="1440" height="560" alt="Screenshot 2025-11-10 at 16 54 26" src="https://github.com/user-attachments/assets/1301861e-786c-4d3c-a793-299bfcd879e6" />
+
+- Chọn item muốn migrate và ấn Migrate Selected
+
+<img width="1440" height="650" alt="Screenshot 2025-11-10 at 16 58 04" src="https://github.com/user-attachments/assets/adc5e3cc-47ea-4732-bf79-b796e1398956" />
+
+- Theo dõi log
+
+<img width="1440" height="645" alt="Screenshot 2025-11-10 at 16 59 07" src="https://github.com/user-attachments/assets/e87faada-4b11-41dc-a8ad-368dd20c95df" />
+
+#### Chiến lược/logic áp dụng
+
+- Role: preserve ID khi có thể, skip các admin roles theo cài đặt an toàn.
+- Policy: validate – map lại collections/fields nếu tên khác nhau giữa môi trường.
+- Permission: validate rule JSON, skip invalid, transform mapping cho phù hợp schema target.
+- User assignments: chỉ chạy sau khi roles/policies đã tồn tại trên target.
+
+#### Kiểm tra bảo mật
+
+- So sánh thay đổi quyền admin.
+- Gắn nhãn rủi ro: `over_permissive`, `under_permissive`, `admin_access`.
+- Xuất log chi tiết để review trước khi apply trên production.
+
+#### Lưu ý
+
+- ❌ Không migrate admin roles nếu không được phép.
+- ✅ Giữ nguyên ID mapping giữa roles/policies/permissions.
+- ⚠️ Validate collection/field tồn tại trên target.
+- 🧩 Test trên staging trước production.
+- 🧰 Backup target trước khi apply.
+
+---
+
+### 3.2 — Flow Migration (Automation Flows)
+
+#### Mục tiêu
+
+Di chuyển các Flows (triggers, operations, schedules) giữa hai môi trường và bảo toàn hành vi.
+
+#### Nội dung bao gồm
+
+- Flows, Triggers (event/webhook/schedule), Operations, Env bindings.
+- Tham chiếu tới collections/fields/permissions liên quan.
+
+#### Các bước thao tác (UI)
+
+- Chọn Flows & Operations Migration
+
+<img width="1440" height="560" alt="Screenshot 2025-11-10 at 16 54 26" src="https://github.com/user-attachments/assets/5624a8c0-4f14-48ab-a61f-1010284e2f7a" />
+
+- Chọn Flow muốn migrate và chọn Migrate Flow
+
+<img width="1439" height="648" alt="Screenshot 2025-11-10 at 17 03 25" src="https://github.com/user-attachments/assets/490b136f-8430-47d6-962b-47df838edaf4" />
+
+<img width="1440" height="646" alt="Screenshot 2025-11-10 at 17 03 41" src="https://github.com/user-attachments/assets/7029c023-8e98-4286-9c21-49c6d9101852" />
+
+- Theo dõi log
+
+<img width="1440" height="656" alt="Screenshot 2025-11-10 at 17 03 55" src="https://github.com/user-attachments/assets/7e66f5a1-3819-4805-93b2-e092e4617450" />
+
+#### Lưu ý khi migrate Flows
+
+- Cập nhật URLs (webhook/callback) theo môi trường target.  
+  +- Kiểm tra env vars (keys/secrets) – thay bằng biến tương ứng trên target.  
+  +- Đảm bảo permissions cần thiết đã có (nên chạy 3.1 trước).  
+  +- Test thủ công các triggers quan trọng sau khi migrate.
+
+---
+
+## 🚀 TỔNG KẾT QUY TRÌNH MIGRATION
+
+| Bước                                 | Nội dung chính                               | Mục tiêu                               |
+| ------------------------------------ | -------------------------------------------- | -------------------------------------- |
+| **1. Schema Migration**              | Tạo cấu trúc, collections, fields, relations | Chuẩn bị khung hệ thống                |
+| **2. Data Migration**                | Import dữ liệu thực tế (Two-Pass)            | Làm đầy nội dung                       |
+| **3. Roles & Permissions Migration** | Chuyển quyền, chính sách, flows              | Giữ nguyên phân quyền & logic vận hành |
