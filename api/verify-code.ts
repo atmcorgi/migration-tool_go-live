@@ -21,7 +21,6 @@ async function parseBody(req: VercelRequest): Promise<any> {
 
 // OTP generation and verification logic (server-side only)
 const DEFAULT_WINDOW_SECONDS = 60;
-const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 hours
 const MAX_ATTEMPTS = 5;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 

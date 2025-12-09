@@ -42,7 +42,7 @@ function App() {
     }
   };
 
-  const [isAuthed, setIsAuthed] = useState<boolean>(() => !!readLocalSession());
+  const [isAuthed, setIsAuthed] = useState<boolean>(false);
   const [sessionChecking, setSessionChecking] = useState<boolean>(true);
   const [loginCode, setLoginCode] = useState<string>("");
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -190,10 +190,7 @@ function App() {
         };
 
         if (typeof window !== "undefined") {
-          sessionStorage.setItem(
-            SESSION_KEY,
-            JSON.stringify(sessionData)
-          );
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
         }
 
         setIsAuthed(true);
@@ -465,6 +462,20 @@ function App() {
   };
 
   if (!isAuthed) {
+    if (sessionChecking) {
+      return (
+        <div
+          className="container"
+          style={{
+            maxWidth: "480px",
+            margin: "4rem auto",
+            textAlign: "center",
+          }}
+        >
+          <p>Checking session…</p>
+        </div>
+      );
+    }
     return (
       <div
         className="container"
